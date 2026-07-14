@@ -1,0 +1,23 @@
+# Host artifacts are rebuilt inside the image so native binaries match the platform.
+node_modules
+dist
+build
+.build-cache
+coverage
+.eslintcache
+selling-partner-api-sdk
+
+# VCS / editor / OS noise
+.git
+.gitignore
+.DS_Store
+npm-debug.log*
+*.log
+
+# NEVER copy real credential vaults into the build context.
+accounts.json
+accounts.*.json
+!accounts.example.json
+
+# Docs not needed in the image
+DOCKER.md

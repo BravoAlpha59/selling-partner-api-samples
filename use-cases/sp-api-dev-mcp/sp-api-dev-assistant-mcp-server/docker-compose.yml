@@ -1,0 +1,34 @@
+# Local Docker Desktop setup for the SP-API Dev Assistant HTTP service.
+#
+# 1. Create your vault:   cp accounts.example.json accounts.json  (then fill it in)
+# 2. Build + run:         docker compose up --build
+# 3. Server:              http://localhost:3000/mcp   (health: /healthz)
+#
+# The vault is mounted read-only; the model + catalog are baked into the image;
+# the search index and SDK clone persist in the named volume across restarts.
+
+services:
+  dev-assistant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sp-api-dev-assistant:local
+    ports:
+      - "3000:3000"
+    environment:
+      LOG_LEVEL: info
+      # Header a gateway (or your test client) sets to pick the account.
+      SP_API_ACCOUNT_HEADER: x-sp-api-account
+      # Optional: default account when a request supplies no code.
+      # SP_API_ACCOUNT_CODE: USMAIN
+      # Optional: shorten for testing the idle-session reaper.
+      # SP_API_SESSION_TTL_MS: "120000"
+    volumes:
+      # Read-only credential vault (accounts.json must exist on the host first).
+      - ./accounts.json:/etc/sp-api/accounts.json:ro
+      # Persist the runtime-built search index + on-demand SDK clone.
+      - sp-api-cache:/root/.sp-api-dev-mcp
+    restart: unless-stopped
+
+volumes:
+  sp-api-cache:
