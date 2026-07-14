@@ -175,6 +175,8 @@ Supports: Python, JavaScript, Java, C#, PHP.
 | `SP_API_ACCOUNT_CODE`  | Optional                                   | Default account code for `sp_api_execute` when no code is supplied per request. |
 | `SP_API_ACCOUNT_HEADER`| Optional (HTTP mode)                       | Request header carrying the account code (default: `x-sp-api-account`). |
 | `PORT`                 | Optional (HTTP mode)                       | Port for the HTTP server (default: `3000`).                       |
+| `SP_API_SESSION_TTL_MS`| Optional (HTTP mode)                       | Idle timeout before a session is reaped, in ms (default: `1800000` = 30 min). |
+| `SP_API_SESSION_SWEEP_MS`| Optional (HTTP mode)                     | How often the idle-session sweep runs, in ms (default: `60000` = 1 min). |
 
 The `sp_api_reference`, `sp_api_optimize`, `sp_api_generate_code_sample`, and `sp_api_migration_assistant` tools work locally without any credentials or environment variables. SP-API credentials are only needed when using `sp_api_execute` to make live API calls.
 

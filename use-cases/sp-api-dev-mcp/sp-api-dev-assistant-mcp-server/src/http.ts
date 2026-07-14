@@ -17,6 +17,7 @@
 
 import express, { type Request, type Response } from "express";
 import { randomUUID } from "crypto";
+import { setInterval } from "node:timers";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { config } from "dotenv";
@@ -35,13 +36,29 @@ const PORT = parseInt(process.env.PORT || "3000", 10);
 const ACCOUNT_HEADER = (
   process.env.SP_API_ACCOUNT_HEADER || "x-sp-api-account"
 ).toLowerCase();
+// Idle sessions are reaped so the session map can't grow unbounded when clients
+// disconnect without sending DELETE. TTL is measured from the last request on
+// the session; the sweep runs periodically.
+const SESSION_TTL_MS = parseInt(
+  process.env.SP_API_SESSION_TTL_MS || "1800000", // 30 minutes idle
+  10,
+);
+const SESSION_SWEEP_MS = parseInt(
+  process.env.SP_API_SESSION_SWEEP_MS || "60000", // sweep every minute
+  10,
+);
 
 // Shared once for the whole process — model, catalog, and index load a single time.
 const services = new SharedServices(dataRoot);
 services.preload();
 
+interface Session {
+  transport: StreamableHTTPServerTransport;
+  lastActivity: number;
+}
+
 // Active sessions, keyed by MCP session id.
-const transports = new Map<string, StreamableHTTPServerTransport>();
+const sessions = new Map<string, Session>();
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
   const v = Array.isArray(value) ? value[0] : value;
@@ -53,15 +70,19 @@ const app = express();
 app.use(express.json({ limit: "4mb" }));
 
 app.get("/healthz", (_req: Request, res: Response) => {
-  res.json({ status: "ok", sessions: transports.size });
+  res.json({ status: "ok", sessions: sessions.size });
 });
 
 // Client -> server messages (and session initialization).
 app.post("/mcp", async (req: Request, res: Response) => {
   const sessionId = firstHeader(req.headers["mcp-session-id"]);
-  let transport = sessionId ? transports.get(sessionId) : undefined;
+  const existing = sessionId ? sessions.get(sessionId) : undefined;
+  let transport: StreamableHTTPServerTransport;
 
-  if (!transport) {
+  if (existing) {
+    existing.lastActivity = Date.now();
+    transport = existing.transport;
+  } else {
     // A new session may only be opened by an initialize request with no session id.
     if (sessionId || !isInitializeRequest(req.body)) {
       res.status(400).json({
@@ -82,10 +103,12 @@ app.post("/mcp", async (req: Request, res: Response) => {
     const newTransport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
-        transports.set(id, newTransport);
+        sessions.set(id, { transport: newTransport, lastActivity: Date.now() });
         logger.info(
           `MCP session ${id} initialized${
-            accountCode ? ` bound to account ${accountCode}` : " (no bound account)"
+            accountCode
+              ? ` bound to account ${accountCode}`
+              : " (no bound account)"
           }`,
         );
       },
@@ -93,7 +116,7 @@ app.post("/mcp", async (req: Request, res: Response) => {
 
     newTransport.onclose = () => {
       const id = newTransport.sessionId;
-      if (id && transports.delete(id)) {
+      if (id && sessions.delete(id)) {
         logger.info(`MCP session ${id} closed`);
       }
     };
@@ -110,16 +133,37 @@ app.post("/mcp", async (req: Request, res: Response) => {
 // Server -> client SSE stream (GET) and explicit session teardown (DELETE).
 async function handleSessionRequest(req: Request, res: Response): Promise<void> {
   const sessionId = firstHeader(req.headers["mcp-session-id"]);
-  const transport = sessionId ? transports.get(sessionId) : undefined;
-  if (!transport) {
+  const session = sessionId ? sessions.get(sessionId) : undefined;
+  if (!session) {
     res.status(400).send("Invalid or missing session ID");
     return;
   }
-  await transport.handleRequest(req, res);
+  session.lastActivity = Date.now();
+  await session.transport.handleRequest(req, res);
 }
 
 app.get("/mcp", handleSessionRequest);
 app.delete("/mcp", handleSessionRequest);
+
+// Reap sessions with no request activity within the TTL. Closing the transport
+// fires its onclose (which removes it from the map); we also delete here so a
+// slow/failed close can't keep the entry around.
+function sweepIdleSessions(): void {
+  const now = Date.now();
+  for (const [id, session] of [...sessions]) {
+    const idleMs = now - session.lastActivity;
+    if (idleMs > SESSION_TTL_MS) {
+      sessions.delete(id);
+      logger.info(
+        `Reaping idle MCP session ${id} (idle ${Math.round(idleMs / 1000)}s)`,
+      );
+      session.transport.close().catch(() => {});
+    }
+  }
+}
+
+// unref() so the sweep timer never keeps the process alive on its own.
+setInterval(sweepIdleSessions, SESSION_SWEEP_MS).unref();
 
 app.listen(PORT, () => {
   logger.info(
