@@ -37,6 +37,15 @@ export const executeApiSchema = z.object({
         "ISO country codes ('US', 'CA', 'MX', 'BR', 'UK', 'GB', 'DE', 'FR', 'IT', 'ES', 'IN', 'JP', 'AU', 'SG'). " +
         "If omitted, falls back to the SP_API_REGION env var, then warns and uses NA.",
     ),
+  account_code: z
+    .string()
+    .optional()
+    .describe(
+      "Standardized code identifying which configured seller account to execute against " +
+        "(e.g. 'USMAIN'). Credentials for the code are resolved server-side and never exposed. " +
+        "In hosted deployments this is bound to your session automatically; when unset it falls " +
+        "back to the SP_API_ACCOUNT_CODE default or a single configured account.",
+    ),
 });
 
 const SP_API_ENDPOINTS = {

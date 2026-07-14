@@ -17,7 +17,7 @@ import {
   ExploreCatalogTool,
   exploreCatalogSchema,
 } from "./tools/explore-catalog-tool.js";
-import { createAuthenticatorFromEnv } from "./auth/sp-api-auth.js";
+import { resolveAuthenticator } from "./auth/account-credentials.js";
 import type { ApiCatalog } from "./types/api-catalog.js";
 import { config } from "dotenv";
 import { readFileSync } from "fs";
@@ -40,7 +40,7 @@ class SPAPIDevMCPServer {
   private optimizationTool: OptimizationTool;
   private search: SearchToolSetup;
   private catalogLoader: CatalogLoader;
-  private executeTool: ExecuteApiTool | null = null;
+  private executeToolsByAccount = new Map<string, ExecuteApiTool>();
   private exploreTool: ExploreCatalogTool | null = null;
   private catalogPromise: Promise<ApiCatalog> | null = null;
 
@@ -77,18 +77,19 @@ class SPAPIDevMCPServer {
     return this.exploreTool;
   }
 
-  private async getExecuteTool(): Promise<ExecuteApiTool> {
-    if (!this.executeTool) {
+  private async getExecuteTool(accountCode?: string): Promise<ExecuteApiTool> {
+    // Resolve the account (and its hidden credentials) before touching the
+    // catalog so a misconfigured/unknown code fails fast with a clear message.
+    const { accountCode: resolvedCode, authenticator } =
+      resolveAuthenticator(accountCode);
+
+    let tool = this.executeToolsByAccount.get(resolvedCode);
+    if (!tool) {
       const catalog = await this.ensureCatalogLoaded();
-      const authenticator = createAuthenticatorFromEnv();
-      if (!authenticator) {
-        throw new Error(
-          "SP-API credentials not configured. Set SP_API_CLIENT_ID, SP_API_CLIENT_SECRET, and SP_API_REFRESH_TOKEN environment variables to use sp_api_execute.",
-        );
-      }
-      this.executeTool = new ExecuteApiTool(catalog, authenticator);
+      tool = new ExecuteApiTool(catalog, authenticator);
+      this.executeToolsByAccount.set(resolvedCode, tool);
     }
-    return this.executeTool;
+    return tool;
   }
 
   private setupResources(): void {
@@ -251,7 +252,7 @@ OUTPUT CHAINING:
         inputSchema: executeApiSchema,
       },
       async (args: any) => {
-        const executeTool = await this.getExecuteTool();
+        const executeTool = await this.getExecuteTool(args.account_code);
         const result = await executeTool.execute(args);
         return {
           content: [{ type: "text" as const, text: result }],
