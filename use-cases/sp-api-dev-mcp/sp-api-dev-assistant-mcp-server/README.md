@@ -171,8 +171,48 @@ Supports: Python, JavaScript, Java, C#, PHP.
 | `CATALOG_PATH`         | `sp_api_execute`, `sp_api_explore_catalog` | Path to Swagger/OpenAPI JSON files (default: `./swagger`)         |
 | `MAX_RESPONSE_TOKENS`  | Optional                                   | Max tokens before catalog responses truncate (default: `25000`)   |
 | `LOG_LEVEL`            | Optional                                   | Logging level: `error`, `warn`, `info`, `debug` (default: `info`) |
+| `SP_API_ACCOUNTS_FILE` | Multi-account                              | Path to the mounted JSON credential vault (default: `/etc/sp-api/accounts.json`). See below. |
+| `SP_API_ACCOUNT_CODE`  | Optional                                   | Default account code for `sp_api_execute` when no code is supplied per request. |
+| `SP_API_ACCOUNT_HEADER`| Optional (HTTP mode)                       | Request header carrying the account code (default: `x-sp-api-account`). |
+| `PORT`                 | Optional (HTTP mode)                       | Port for the HTTP server (default: `3000`).                       |
 
 The `sp_api_reference`, `sp_api_optimize`, `sp_api_generate_code_sample`, and `sp_api_migration_assistant` tools work locally without any credentials or environment variables. SP-API credentials are only needed when using `sp_api_execute` to make live API calls.
+
+## Running as a hosted HTTP service (multi-account)
+
+In addition to the default stdio transport (`npm start` / launched by a local MCP
+client), the server can run as a networked Streamable-HTTP service that many users
+share, each acting against a different Amazon seller account:
+
+```bash
+npm run build
+SP_API_ACCOUNTS_FILE=/etc/sp-api/accounts.json npm run start:http   # listens on :3000, endpoint /mcp
+```
+
+**Credential vault.** Instead of single `SP_API_*` credentials, provide a mounted,
+read-only JSON file mapping non-secret **account codes** to LWA credentials. Real
+vault files are gitignored; see `accounts.example.json` for the shape:
+
+```json
+{
+  "accounts": {
+    "USMAIN": { "clientId": "...", "clientSecret": "...", "refreshToken": "...", "region": "NA" },
+    "UKPRIME": { "clientId": "...", "clientSecret": "...", "refreshToken": "...", "region": "EU" }
+  }
+}
+```
+
+**Account binding.** Each MCP session is bound to one account via a request header
+(`SP_API_ACCOUNT_HEADER`, default `X-SP-API-Account: USMAIN`) at initialization.
+The bound code is resolved to credentials **entirely server-side** — credentials
+are never exposed to the user or the agent, and a session's binding **overrides**
+any `account_code` the agent passes to `sp_api_execute`.
+
+> **Security:** `/mcp` must sit behind a trusted authenticating gateway (e.g. an
+> ALB/API gateway or auth middleware) that authenticates the user, **strips any
+> client-supplied account header**, and sets its own based on the user's
+> entitlement. This entry point wires the transport and account binding;
+> authentication is a separate layer.
 
 ## Usage Examples
 
