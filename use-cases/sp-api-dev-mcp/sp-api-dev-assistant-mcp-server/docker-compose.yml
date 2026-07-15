@@ -23,6 +23,15 @@ services:
       # SP_API_ACCOUNT_CODE: USMAIN
       # Optional: shorten for testing the idle-session reaper.
       # SP_API_SESSION_TTL_MS: "120000"
+      # --- Auth (optional; default off). Require a bearer token on /mcp: ---
+      # AUTH_ENABLED: "1"
+      # OIDC_ISSUER: https://sso.example.com/realms/main
+      # OIDC_CLIENT_ID: sp-api-dev-assistant
+      # OIDC_CLIENT_SECRET: your-client-secret
+      # OIDC_REDIRECT_URI: http://localhost:3000/auth/callback
+      # PUBLIC_URL: http://localhost:3000
+      # For local testing WITHOUT an IdP (mint a token via POST /auth/dev-login):
+      # AUTH_DEV_LOGIN: "1"
     volumes:
       # Read-only credential vault (accounts.json must exist on the host first).
       - ./accounts.json:/etc/sp-api/accounts.json:ro

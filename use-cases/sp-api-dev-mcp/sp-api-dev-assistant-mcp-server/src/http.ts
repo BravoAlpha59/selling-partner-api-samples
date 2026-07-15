@@ -7,13 +7,11 @@
 // NOT chosen by the agent. Credentials for that account are resolved entirely
 // server-side (see auth/account-credentials) and never leave the process.
 //
-// SECURITY: /mcp must sit behind a trusted authenticating gateway (ALB + auth,
-// API gateway, or an auth middleware added here) that:
-//   1. authenticates the user, and
-//   2. STRIPS any client-supplied account header and sets its own based on the
-//      user's entitlement.
-// Without that, a direct caller could set the header to any account code. This
-// entry point wires transport + binding; authentication is a separate layer.
+// AUTH: when AUTH_ENABLED is set, /mcp requires a bearer PAT (the "B2" flow) —
+// users authenticate once via OIDC at /auth/login and receive a token to send as
+// `Authorization: Bearer`. See src/auth/. When AUTH_ENABLED is unset, /mcp is
+// open (local/dev). Account selection stays via the X-SP-API-Account header; the
+// simplified model is "any authenticated user may use any configured account".
 
 import express, { type Request, type Response } from "express";
 import { randomUUID } from "crypto";
@@ -25,6 +23,14 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import { SharedServices } from "./services.js";
 import { createMcpServer } from "./mcp-server.js";
+import { TokenStore } from "./auth/token-store.js";
+import { OidcClient } from "./auth/oidc.js";
+import { createAuthRouter } from "./auth/auth-routes.js";
+import {
+  createRequireAuth,
+  authEnabled,
+  type AuthedRequest,
+} from "./auth/auth-middleware.js";
 import { logger } from "./utils/logger.js";
 
 config();
@@ -52,6 +58,11 @@ const SESSION_SWEEP_MS = parseInt(
 const services = new SharedServices(dataRoot);
 services.preload();
 
+// B2 auth: a bearer-PAT gate in front of /mcp. No-op unless AUTH_ENABLED is set.
+const tokenStore = new TokenStore();
+const oidc = OidcClient.fromEnv();
+const requireAuth = createRequireAuth(tokenStore);
+
 interface Session {
   transport: StreamableHTTPServerTransport;
   lastActivity: number;
@@ -68,13 +79,17 @@ function firstHeader(value: string | string[] | undefined): string | undefined {
 
 const app = express();
 app.use(express.json({ limit: "4mb" }));
+app.use(express.urlencoded({ extended: false })); // dev-login form posts
 
 app.get("/healthz", (_req: Request, res: Response) => {
-  res.json({ status: "ok", sessions: sessions.size });
+  res.json({ status: "ok", sessions: sessions.size, authEnabled: authEnabled() });
 });
 
-// Client -> server messages (and session initialization).
-app.post("/mcp", async (req: Request, res: Response) => {
+// Login / token endpoints (open — they issue and manage credentials).
+app.use("/auth", createAuthRouter(tokenStore, oidc));
+
+// Client -> server messages (and session initialization). Gated by requireAuth.
+app.post("/mcp", requireAuth, async (req: Request, res: Response) => {
   const sessionId = firstHeader(req.headers["mcp-session-id"]);
   const existing = sessionId ? sessions.get(sessionId) : undefined;
   let transport: StreamableHTTPServerTransport;
@@ -99,6 +114,8 @@ app.post("/mcp", async (req: Request, res: Response) => {
 
     // Bind the account for this session from the gateway-supplied header.
     const accountCode = firstHeader(req.headers[ACCOUNT_HEADER]);
+    // Authenticated identity (present only when AUTH_ENABLED) — for audit.
+    const actor = (req as AuthedRequest).user;
 
     const newTransport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
@@ -109,7 +126,7 @@ app.post("/mcp", async (req: Request, res: Response) => {
             accountCode
               ? ` bound to account ${accountCode}`
               : " (no bound account)"
-          }`,
+          }${actor ? ` by user "${actor.username ?? actor.subject}"` : ""}`,
         );
       },
     });
@@ -142,8 +159,8 @@ async function handleSessionRequest(req: Request, res: Response): Promise<void> 
   await session.transport.handleRequest(req, res);
 }
 
-app.get("/mcp", handleSessionRequest);
-app.delete("/mcp", handleSessionRequest);
+app.get("/mcp", requireAuth, handleSessionRequest);
+app.delete("/mcp", requireAuth, handleSessionRequest);
 
 // Reap sessions with no request activity within the TTL. Closing the transport
 // fires its onclose (which removes it from the map); we also delete here so a
@@ -166,7 +183,10 @@ function sweepIdleSessions(): void {
 setInterval(sweepIdleSessions, SESSION_SWEEP_MS).unref();
 
 app.listen(PORT, () => {
+  const auth = authEnabled()
+    ? `auth ON (${oidc ? "OIDC" : "no OIDC — dev-login only"})`
+    : "auth OFF";
   logger.info(
-    `SP-API dev-assistant MCP (Streamable HTTP) listening on :${PORT} — account header "${ACCOUNT_HEADER}"`,
+    `SP-API dev-assistant MCP (Streamable HTTP) listening on :${PORT} — account header "${ACCOUNT_HEADER}", ${auth}`,
   );
 });
