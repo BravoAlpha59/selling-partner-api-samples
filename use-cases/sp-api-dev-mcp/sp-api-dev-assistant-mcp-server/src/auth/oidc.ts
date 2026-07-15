@@ -25,6 +25,45 @@ interface PendingLogin {
 
 const PENDING_TTL_MS = 10 * 60 * 1000;
 
+/**
+ * Fetch for a *split-horizon* IdP: one the browser and this process must reach
+ * by different network paths.
+ *
+ * OIDC allows only one issuer identity. The discovery document names the
+ * `authorization_endpoint` the browser is sent to, and most IdPs (Authentik,
+ * Keycloak) derive that document from the incoming request's forwarded headers.
+ * So if this process discovered the IdP at its back-channel address, the IdP
+ * would advertise that address to the browser, which cannot reach it.
+ *
+ * This dials `internalOrigin` while declaring, via `X-Forwarded-*`, the public
+ * URL the request was really for — so the IdP keeps advertising endpoints the
+ * browser can reach. Requests to any other origin pass through untouched.
+ *
+ * `Host` would be the obvious header for this, but the Fetch spec forbids
+ * overriding it and undici drops it silently, so `X-Forwarded-Host` it is. The
+ * IdP must therefore trust this process as a proxy (Authentik trusts private
+ * CIDRs by default, which covers a container on a Docker bridge).
+ */
+export function createSplitHorizonFetch(
+  publicIssuer: string,
+  internalOrigin: string,
+): client.CustomFetch {
+  const pub = new URL(publicIssuer);
+  const internal = new URL(internalOrigin);
+  return (url, options) => {
+    const target = new URL(url);
+    if (target.origin !== pub.origin) {
+      return fetch(url, options as RequestInit);
+    }
+    target.protocol = internal.protocol;
+    target.host = internal.host;
+    const headers = new Headers(options.headers as HeadersInit | undefined);
+    headers.set("x-forwarded-host", pub.host);
+    headers.set("x-forwarded-proto", pub.protocol.replace(/:$/, ""));
+    return fetch(target, { ...options, headers } as RequestInit);
+  };
+}
+
 export class OidcClient {
   private configPromise: Promise<client.Configuration> | null = null;
   private readonly pending = new Map<string, PendingLogin>();
@@ -35,6 +74,7 @@ export class OidcClient {
     private readonly clientSecret: string | undefined,
     private readonly redirectUri: string,
     private readonly scope: string = "openid profile email",
+    private readonly internalOrigin?: string,
   ) {}
 
   /** Build from OIDC_* env vars, or null if not configured. */
@@ -49,15 +89,30 @@ export class OidcClient {
       process.env.OIDC_CLIENT_SECRET,
       redirectUri,
       process.env.OIDC_SCOPE || "openid profile email",
+      process.env.OIDC_INTERNAL_ORIGIN || undefined,
     );
   }
 
   private config(): Promise<client.Configuration> {
     if (!this.configPromise) {
+      // customFetch given here is carried onto the resolved Configuration, so it
+      // also covers the later token-exchange and userinfo calls.
+      const options: client.DiscoveryRequestOptions = {};
+      if (this.internalOrigin) {
+        options[client.customFetch] = createSplitHorizonFetch(
+          this.issuer,
+          this.internalOrigin,
+        );
+        logger.info(
+          `OIDC: reaching issuer ${new URL(this.issuer).origin} via back-channel ${new URL(this.internalOrigin).origin}`,
+        );
+      }
       this.configPromise = client.discovery(
         new URL(this.issuer),
         this.clientId,
         this.clientSecret,
+        undefined,
+        options,
       );
     }
     return this.configPromise;
@@ -72,7 +127,12 @@ export class OidcClient {
     const nonce = client.randomNonce();
 
     this.gcPending();
-    this.pending.set(state, { codeVerifier, state, nonce, createdAt: Date.now() });
+    this.pending.set(state, {
+      codeVerifier,
+      state,
+      nonce,
+      createdAt: Date.now(),
+    });
 
     const url = client.buildAuthorizationUrl(config, {
       redirect_uri: this.redirectUri,
@@ -108,7 +168,8 @@ export class OidcClient {
     }
 
     let username =
-      (typeof claims.preferred_username === "string" && claims.preferred_username) ||
+      (typeof claims.preferred_username === "string" &&
+        claims.preferred_username) ||
       (typeof claims.name === "string" && claims.name) ||
       undefined;
     let email = typeof claims.email === "string" ? claims.email : undefined;
@@ -122,7 +183,8 @@ export class OidcClient {
       )) as Record<string, unknown>;
       username =
         username ||
-        (typeof info.preferred_username === "string" && info.preferred_username) ||
+        (typeof info.preferred_username === "string" &&
+          info.preferred_username) ||
         (typeof info.name === "string" && info.name) ||
         undefined;
       email =

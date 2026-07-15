@@ -1,6 +1,7 @@
 # Local Docker Desktop setup for the SP-API Dev Assistant HTTP service.
 #
 # 1. Create your vault:   cp accounts.example.json accounts.json  (then fill it in)
+#    ...and your config:  cp .env.example .env    (required; empty = auth off)
 # 2. Build + run:         docker compose up --build
 # 3. Server:              http://localhost:3000/mcp   (health: /healthz)
 #
@@ -15,14 +16,11 @@ services:
     image: sp-api-dev-assistant:local
     ports:
       - "3000:3000"
-    # Optional local overrides — auth (AUTH_ENABLED, OIDC_*) and anything else
-    # the service reads. Copy .env.example to .env and fill it in; .env is
-    # gitignored, so real secrets never land in this file. Absent .env = auth off.
-    # Requires Compose v2.24+ for `required: false`; on older Compose use the
-    # short form (`- .env`) and create the file even if empty.
+    # Local config: auth (AUTH_ENABLED, OIDC_*) and any other overrides. .env is
+    # gitignored, so real secrets never land in this tracked file. It must exist
+    # (an empty file is fine, and leaves auth off) — see step 1 in the header.
     env_file:
-      - path: .env
-        required: false
+      - .env
     environment:
       LOG_LEVEL: info
       # Header a gateway (or your test client) sets to pick the account.

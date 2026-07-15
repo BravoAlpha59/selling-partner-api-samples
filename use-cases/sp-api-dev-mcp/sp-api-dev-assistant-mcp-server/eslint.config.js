@@ -27,6 +27,11 @@ export default [
       globals: {
         console: "readonly",
         process: "readonly",
+        // Web-standard globals provided by the Node runtime (18+).
+        fetch: "readonly",
+        Headers: "readonly",
+        Request: "readonly",
+        Response: "readonly",
       },
     },
     plugins: {
