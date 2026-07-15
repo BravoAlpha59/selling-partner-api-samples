@@ -15,6 +15,14 @@ services:
     image: sp-api-dev-assistant:local
     ports:
       - "3000:3000"
+    # Optional local overrides — auth (AUTH_ENABLED, OIDC_*) and anything else
+    # the service reads. Copy .env.example to .env and fill it in; .env is
+    # gitignored, so real secrets never land in this file. Absent .env = auth off.
+    # Requires Compose v2.24+ for `required: false`; on older Compose use the
+    # short form (`- .env`) and create the file even if empty.
+    env_file:
+      - path: .env
+        required: false
     environment:
       LOG_LEVEL: info
       # Header a gateway (or your test client) sets to pick the account.
@@ -23,20 +31,17 @@ services:
       # SP_API_ACCOUNT_CODE: USMAIN
       # Optional: shorten for testing the idle-session reaper.
       # SP_API_SESSION_TTL_MS: "120000"
-      # --- Auth (optional; default off). Require a bearer token on /mcp: ---
-      # AUTH_ENABLED: "1"
-      # OIDC_ISSUER: https://sso.example.com/realms/main
-      # OIDC_CLIENT_ID: sp-api-dev-assistant
-      # OIDC_CLIENT_SECRET: your-client-secret
-      # OIDC_REDIRECT_URI: http://localhost:3000/auth/callback
-      # PUBLIC_URL: http://localhost:3000
-      # For local testing WITHOUT an IdP (mint a token via POST /auth/dev-login):
-      # AUTH_DEV_LOGIN: "1"
     volumes:
       # Read-only credential vault (accounts.json must exist on the host first).
       - ./accounts.json:/etc/sp-api/accounts.json:ro
       # Persist the runtime-built search index + on-demand SDK clone.
       - sp-api-cache:/root/.sp-api-dev-mcp
+    # If the IdP is reachable only over a private/overlay network (e.g. a
+    # Tailscale MagicDNS *.ts.net name) the container won't resolve it via the
+    # host's normal DNS. Pin the name to its overlay IP here; TLS still verifies
+    # because the cert is bound to the name, not the address.
+    # extra_hosts:
+    #   - "idp.example.ts.net:100.x.y.z"
     restart: unless-stopped
 
 volumes:

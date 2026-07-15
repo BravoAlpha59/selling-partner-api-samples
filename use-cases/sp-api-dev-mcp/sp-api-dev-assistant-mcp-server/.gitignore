@@ -12,3 +12,8 @@ selling-partner-api-sdk/
 accounts.json
 accounts.*.json
 !accounts.example.json
+
+# Local deployment secrets (OIDC client secret, etc.) read by docker-compose.
+# The committed template is .env.example.
+.env
+!.env.example
