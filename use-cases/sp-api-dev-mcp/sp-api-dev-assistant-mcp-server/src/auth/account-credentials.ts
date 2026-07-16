@@ -132,6 +132,24 @@ export function listAccountCodes(): string[] {
   return [...loadVault().keys()];
 }
 
+/** A configured account, with only the non-secret fields. */
+export interface AccountSummary {
+  code: string;
+  region?: string;
+}
+
+/**
+ * Non-secret summaries of the configured accounts, for agent-facing discovery.
+ * Deliberately omits clientId/clientSecret/refreshToken — the code is the only
+ * account identifier that may cross the tool boundary.
+ */
+export function listAccounts(): AccountSummary[] {
+  return [...loadVault().entries()].map(([code, account]) => ({
+    code,
+    region: account.region,
+  }));
+}
+
 /**
  * Build an authenticator for a specific configured account code.
  * @throws if the code is not present in the vault.

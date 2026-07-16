@@ -10,10 +10,7 @@
 import { Router, type Request, type Response } from "express";
 import { TokenStore } from "./token-store.js";
 import { OidcClient } from "./oidc.js";
-import {
-  createRequireAuth,
-  type AuthedRequest,
-} from "./auth-middleware.js";
+import { createRequireAuth, type AuthedRequest } from "./auth-middleware.js";
 import { logger } from "../utils/logger.js";
 
 function devLoginEnabled(): boolean {
@@ -55,18 +52,32 @@ function renderTokenPage(
   who: string | undefined,
 ): string {
   const url = `${baseUrl(req)}/mcp`;
-  const cmd = `claude mcp add --transport http sp-api-dev-assistant ${url} \\\n  --header "Authorization: Bearer ${token}" \\\n  --header "X-SP-API-Account: <ACCOUNT_CODE>"`;
+  // No X-SP-API-Account header by default: any authenticated user may reach any
+  // account, so the agent selects one per request via sp_api_execute's
+  // account_code. Pinning is the exception, and is documented as such below.
+  const cmd = `claude mcp add --transport http sp-api-dev-assistant ${url} \\\n  --header "Authorization: Bearer ${token}"`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Your SP-API token</title>
 <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:3rem auto;padding:0 1rem;line-height:1.5}
 code,pre{background:#f4f4f5;border-radius:6px}pre{padding:1rem;overflow-x:auto}.tok{font-size:1.05rem;word-break:break-all}
-.warn{background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:.75rem 1rem}</style></head>
+.warn{background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:.75rem 1rem}
+details{margin-top:1.5rem}summary{cursor:pointer}</style></head>
 <body><h1>Your personal access token</h1>
 <p>Signed in${who ? ` as <strong>${escapeHtml(who)}</strong>` : ""}. This token is shown <strong>once</strong> — copy it now.</p>
 <p class="tok"><code>${escapeHtml(token)}</code></p>
 <div class="warn">Store it like a password. Anyone with this token can use the service as you.</div>
 <h2>Add it to your MCP client</h2>
 <pre>${escapeHtml(cmd)}</pre>
-<p>Replace <code>&lt;ACCOUNT_CODE&gt;</code> with the seller account you want (e.g. <code>SH</code>), then reload your client.</p>
+<p><code>sp-api-dev-assistant</code> is only a local label. Rename it if you like, but keep it to
+a single word immediately before the URL — an extra word there is read as the URL and the
+command fails.</p>
+<p>Reload your client, then just name the seller account you want (e.g. <em>&ldquo;show me SH
+orders for the last 7 days&rdquo;</em>). Ask it to run <code>sp_api_accounts</code> to see which
+accounts are configured.</p>
+<details><summary>Pin this connection to a single account</summary>
+<p>Optional. Add <code>--header "X-SP-API-Account: SH"</code> to bind every request from this
+connection to one seller account. The agent then cannot select another, and
+<code>sp_api_accounts</code> lists only that one. Most people don't need this.</p>
+</details>
 </body></html>`;
 }
 
@@ -99,7 +110,9 @@ export function createAuthRouter(
     }
     res
       .status(503)
-      .send("No login method configured. Set OIDC_ISSUER / OIDC_CLIENT_ID / OIDC_REDIRECT_URI.");
+      .send(
+        "No login method configured. Set OIDC_ISSUER / OIDC_CLIENT_ID / OIDC_REDIRECT_URI.",
+      );
   });
 
   router.get("/callback", async (req: Request, res: Response) => {
@@ -116,13 +129,19 @@ export function createAuthRouter(
         label: "oidc",
         ttlMs: tokenTtlMs(),
       });
-      logger.info(`Minted token for OIDC user "${user.username || user.subject}"`);
-      res.type("html").send(renderTokenPage(req, token, user.username || user.email));
+      logger.info(
+        `Minted token for OIDC user "${user.username || user.subject}"`,
+      );
+      res
+        .type("html")
+        .send(renderTokenPage(req, token, user.username || user.email));
     } catch (e) {
       logger.error(
         `OIDC callback failed: ${e instanceof Error ? e.message : String(e)}`,
       );
-      res.status(400).send("Login failed or expired. Start again at /auth/login.");
+      res
+        .status(400)
+        .send("Login failed or expired. Start again at /auth/login.");
     }
   });
 

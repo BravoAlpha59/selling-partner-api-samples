@@ -6,7 +6,12 @@
 // `options.accountCode`, when set, is the account bound to this connection by a
 // trusted gateway (e.g. from an authenticated request header). It takes
 // precedence over any `account_code` the agent passes to sp_api_execute, so the
-// agent can neither choose nor discover which credentials are used.
+// agent can neither choose nor discover which credentials are used, and
+// sp_api_accounts lists only the bound account.
+//
+// When it is NOT set, the connection can reach every account in the vault and
+// the agent selects per call — so sp_api_accounts enumerates them. Either way
+// credentials stay server-side; only the non-secret code crosses the boundary.
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { readFileSync } from "fs";
@@ -17,6 +22,7 @@ import { searchSchema } from "./zod-schemas/search-schemas.js";
 import { optimizationSchema } from "./zod-schemas/optimization-schemas.js";
 import { executeApiSchema } from "./tools/execute-api-tool.js";
 import { exploreCatalogSchema } from "./tools/explore-catalog-tool.js";
+import { listAccounts } from "./auth/account-credentials.js";
 import type { SharedServices } from "./services.js";
 
 export interface McpServerOptions {
@@ -209,6 +215,36 @@ OUTPUT CHAINING:
       const result = await executeTool.execute(args);
       return {
         content: [{ type: "text" as const, text: result }],
+      };
+    },
+  );
+
+  // Register SP-API Accounts Tool
+  server.registerTool(
+    "sp_api_accounts",
+    {
+      description:
+        "List the seller accounts this server can execute against. Returns non-secret " +
+        'account codes (e.g. "SH") for use as `account_code` in sp_api_execute, with each ' +
+        "account's selling region where configured. Credentials are resolved server-side " +
+        "and are never returned. Call this when the user names an account in prose rather " +
+        "than by code, or to confirm which accounts exist before calling sp_api_execute. " +
+        "If this connection is bound to a single account, only that account is listed.",
+      inputSchema: {},
+    },
+    async () => {
+      // A bound connection must not enumerate: the gateway pinned this account
+      // precisely so the agent can neither choose nor see the others.
+      const accounts = options.accountCode
+        ? [{ code: options.accountCode, bound: true }]
+        : listAccounts();
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ accounts }, null, 2),
+          },
+        ],
       };
     },
   );
