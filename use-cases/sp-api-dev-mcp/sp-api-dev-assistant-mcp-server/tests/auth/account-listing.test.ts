@@ -35,31 +35,37 @@ const CREDS = {
 };
 
 describe("listAccounts", () => {
-  it("returns each configured code with its region", () => {
+  it("returns each configured code with its region and label", () => {
     process.env.SP_API_ACCOUNTS_FILE = writeVault({
-      SH: { ...CREDS, region: "NA" },
+      SH: { ...CREDS, region: "NA", label: "Sincerely Hers" },
       DE: { ...CREDS, region: "EU" },
     });
     expect(listAccounts()).toEqual([
-      { code: "SH", region: "NA" },
-      { code: "DE", region: "EU" },
+      { code: "SH", region: "NA", label: "Sincerely Hers" },
+      { code: "DE", region: "EU", label: undefined },
     ]);
   });
 
-  it("NEVER exposes credentials — the code is all that may cross the boundary", () => {
+  it("NEVER exposes credentials — only non-secret fields cross the boundary", () => {
     process.env.SP_API_ACCOUNTS_FILE = writeVault({
-      SH: { ...CREDS, region: "NA" },
+      SH: { ...CREDS, region: "NA", label: "Sincerely Hers" },
     });
     const serialized = JSON.stringify(listAccounts());
     expect(serialized).not.toContain(CREDS.clientSecret);
     expect(serialized).not.toContain(CREDS.refreshToken);
     expect(serialized).not.toContain(CREDS.clientId);
-    expect(Object.keys(listAccounts()[0]).sort()).toEqual(["code", "region"]);
+    expect(Object.keys(listAccounts()[0]).sort()).toEqual([
+      "code",
+      "label",
+      "region",
+    ]);
   });
 
-  it("omits region when the account doesn't set one", () => {
+  it("omits region and label when the account doesn't set them", () => {
     process.env.SP_API_ACCOUNTS_FILE = writeVault({ SH: { ...CREDS } });
-    expect(listAccounts()).toEqual([{ code: "SH", region: undefined }]);
+    expect(listAccounts()).toEqual([
+      { code: "SH", region: undefined, label: undefined },
+    ]);
   });
 
   it("returns an empty list when no vault is configured (env-cred fallback)", () => {

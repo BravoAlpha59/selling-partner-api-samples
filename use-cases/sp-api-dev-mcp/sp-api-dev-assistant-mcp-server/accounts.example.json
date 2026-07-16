@@ -4,13 +4,15 @@
       "clientId": "amzn1.application-oa2-client.REPLACE_ME",
       "clientSecret": "amzn1.oa2-cs.v1.REPLACE_ME",
       "refreshToken": "Atzr|REPLACE_ME",
-      "region": "NA"
+      "region": "NA",
+      "label": "US Main Store"
     },
     "UKPRIME": {
       "clientId": "amzn1.application-oa2-client.REPLACE_ME",
       "clientSecret": "amzn1.oa2-cs.v1.REPLACE_ME",
       "refreshToken": "Atzr|REPLACE_ME",
-      "region": "EU"
+      "region": "EU",
+      "label": "UK Prime Store"
     }
   }
 }

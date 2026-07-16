@@ -18,7 +18,8 @@
 //         "clientId": "amzn1.application-oa2-client.xxx",
 //         "clientSecret": "amzn1.oa2-cs.v1.xxx",
 //         "refreshToken": "Atzr|xxx",
-//         "region": "NA"          // optional; "NA" | "EU" | "FE" or a country code
+//         "region": "NA",         // optional; "NA" | "EU" | "FE" or a country code
+//         "label": "US Main"      // optional; human name shown by sp_api_accounts
 //         // "baseUrl": "https://sellingpartnerapi-na.amazon.com"  // optional override
 //       }
 //     }
@@ -40,6 +41,11 @@ export interface AccountCredentials {
   region?: string;
   /** Optional explicit base URL; overrides region-derived endpoint. */
   baseUrl?: string;
+  /**
+   * Optional human-readable name (e.g. "Sincerely Hers"), surfaced by
+   * sp_api_accounts so the agent can map prose to a code. Non-secret.
+   */
+  label?: string;
 }
 
 /** Sentinel account code used when falling back to SP_API_* env credentials. */
@@ -136,17 +142,20 @@ export function listAccountCodes(): string[] {
 export interface AccountSummary {
   code: string;
   region?: string;
+  label?: string;
 }
 
 /**
  * Non-secret summaries of the configured accounts, for agent-facing discovery.
- * Deliberately omits clientId/clientSecret/refreshToken — the code is the only
- * account identifier that may cross the tool boundary.
+ * Deliberately projects an explicit whitelist rather than spreading the account
+ * — clientId/clientSecret/refreshToken must never cross the tool boundary, so a
+ * new secret-bearing field can't leak here by accident.
  */
 export function listAccounts(): AccountSummary[] {
   return [...loadVault().entries()].map(([code, account]) => ({
     code,
     region: account.region,
+    label: account.label,
   }));
 }
 

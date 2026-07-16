@@ -225,11 +225,12 @@ OUTPUT CHAINING:
     {
       description:
         "List the seller accounts this server can execute against. Returns non-secret " +
-        'account codes (e.g. "SH") for use as `account_code` in sp_api_execute, with each ' +
-        "account's selling region where configured. Credentials are resolved server-side " +
-        "and are never returned. Call this when the user names an account in prose rather " +
-        "than by code, or to confirm which accounts exist before calling sp_api_execute. " +
-        "If this connection is bound to a single account, only that account is listed.",
+        'account codes (e.g. "SH") for use as `account_code` in sp_api_execute, each with ' +
+        "its selling region and a human-readable label where configured. Credentials are " +
+        "resolved server-side and are never returned. Call this when the user names an " +
+        'account in prose ("Sincerely Hers") so you can match it to a code via the label, ' +
+        "or to confirm which accounts exist before calling sp_api_execute. If this " +
+        "connection is bound to a single account, only that account is listed.",
       inputSchema: {},
     },
     async () => {
