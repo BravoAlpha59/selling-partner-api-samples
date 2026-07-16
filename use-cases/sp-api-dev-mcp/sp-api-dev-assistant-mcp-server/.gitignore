@@ -6,3 +6,14 @@
 .eslintcache
 .DS_Store
 selling-partner-api-sdk/
+
+# SP-API credential vaults — never commit real credentials.
+# The committed template is accounts.example.json.
+accounts.json
+accounts.*.json
+!accounts.example.json
+
+# Local deployment secrets (OIDC client secret, etc.) read by docker-compose.
+# The committed template is .env.example.
+.env
+!.env.example

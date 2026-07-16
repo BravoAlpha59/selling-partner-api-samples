@@ -171,8 +171,87 @@ Supports: Python, JavaScript, Java, C#, PHP.
 | `CATALOG_PATH`         | `sp_api_execute`, `sp_api_explore_catalog` | Path to Swagger/OpenAPI JSON files (default: `./swagger`)         |
 | `MAX_RESPONSE_TOKENS`  | Optional                                   | Max tokens before catalog responses truncate (default: `25000`)   |
 | `LOG_LEVEL`            | Optional                                   | Logging level: `error`, `warn`, `info`, `debug` (default: `info`) |
+| `SP_API_ACCOUNTS_FILE` | Multi-account                              | Path to the mounted JSON credential vault (default: `/etc/sp-api/accounts.json`). See below. |
+| `SP_API_ACCOUNT_CODE`  | Optional                                   | Default account code for `sp_api_execute` when no code is supplied per request. |
+| `SP_API_ACCOUNT_HEADER`| Optional (HTTP mode)                       | Request header carrying the account code (default: `x-sp-api-account`). |
+| `PORT`                 | Optional (HTTP mode)                       | Port for the HTTP server (default: `3000`).                       |
+| `SP_API_SESSION_TTL_MS`| Optional (HTTP mode)                       | Idle timeout before a session is reaped, in ms (default: `1800000` = 30 min). |
+| `SP_API_SESSION_SWEEP_MS`| Optional (HTTP mode)                     | How often the idle-session sweep runs, in ms (default: `60000` = 1 min). |
+| `AUTH_ENABLED`         | Optional (HTTP mode)                       | Set to `1` to require a bearer token on `/mcp`. Default off (open). |
+| `OIDC_ISSUER`          | Auth                                       | OIDC provider issuer URL (discovery). Required to enable OIDC login. |
+| `OIDC_CLIENT_ID`       | Auth                                       | OIDC client ID registered for this service. |
+| `OIDC_CLIENT_SECRET`   | Auth                                       | OIDC client secret (omit for a public client). |
+| `OIDC_REDIRECT_URI`    | Auth                                       | Callback URL, e.g. `https://<host>/auth/callback`. |
+| `OIDC_SCOPE`           | Optional (Auth)                            | OIDC scopes (default: `openid profile email`). |
+| `AUTH_TOKEN_TTL_DAYS`  | Optional (Auth)                            | PAT lifetime in days (default: `90`; `0` = no expiry). |
+| `SP_API_TOKENS_FILE`   | Optional (Auth)                            | Where issued token hashes persist (default: `<MCP_CACHE_DIR>/tokens.json`). |
+| `PUBLIC_URL`           | Optional (Auth)                            | External base URL used when rendering login/token pages. |
+| `AUTH_DEV_LOGIN`       | Optional (Auth)                            | Set to `1` to enable `/auth/dev-login` (mint a token without OIDC). **Testing only — never in production.** |
 
 The `sp_api_reference`, `sp_api_optimize`, `sp_api_generate_code_sample`, and `sp_api_migration_assistant` tools work locally without any credentials or environment variables. SP-API credentials are only needed when using `sp_api_execute` to make live API calls.
+
+## Running as a hosted HTTP service (multi-account)
+
+In addition to the default stdio transport (`npm start` / launched by a local MCP
+client), the server can run as a networked Streamable-HTTP service that many users
+share, each acting against a different Amazon seller account:
+
+```bash
+npm run build
+SP_API_ACCOUNTS_FILE=/etc/sp-api/accounts.json npm run start:http   # listens on :3000, endpoint /mcp
+```
+
+**Credential vault.** Instead of single `SP_API_*` credentials, provide a mounted,
+read-only JSON file mapping non-secret **account codes** to LWA credentials. Real
+vault files are gitignored; see `accounts.example.json` for the shape:
+
+```json
+{
+  "accounts": {
+    "USMAIN": { "clientId": "...", "clientSecret": "...", "refreshToken": "...", "region": "NA" },
+    "UKPRIME": { "clientId": "...", "clientSecret": "...", "refreshToken": "...", "region": "EU" }
+  }
+}
+```
+
+**Account binding.** Each MCP session is bound to one account via a request header
+(`SP_API_ACCOUNT_HEADER`, default `X-SP-API-Account: USMAIN`) at initialization.
+The bound code is resolved to credentials **entirely server-side** — credentials
+are never exposed to the user or the agent, and a session's binding **overrides**
+any `account_code` the agent passes to `sp_api_execute`.
+
+## Authentication (optional)
+
+By default `/mcp` is open (fine for local use). Set **`AUTH_ENABLED=1`** to require a
+per-user **bearer token** on every `/mcp` request. The flow ("B2"):
+
+1. A user opens **`/auth/login`** in a browser and signs in via your OIDC provider
+   (Synology SSO, Keycloak, Authentik — any standard OIDC IdP; configured with the
+   `OIDC_*` env vars).
+2. On success the server mints a long-lived, revocable **personal access token**
+   (PAT) and shows it once, along with a ready-to-paste `claude mcp add` command.
+3. The user adds it to their MCP client as an `Authorization: Bearer <token>` header
+   (alongside `X-SP-API-Account`). The server validates it on each request.
+
+Only the token's hash is stored (`SP_API_TOKENS_FILE`); tokens are revocable via
+`POST /auth/tokens/:id/revoke` and listable via `GET /auth/tokens`.
+
+```bash
+AUTH_ENABLED=1 \
+OIDC_ISSUER=https://sso.example.com/realms/main \
+OIDC_CLIENT_ID=sp-api-dev-assistant \
+OIDC_CLIENT_SECRET=... \
+OIDC_REDIRECT_URI=https://mcp.example.com/auth/callback \
+npm run start:http
+```
+
+Authorization is intentionally coarse: **any authenticated user may use any
+configured account** (the `X-SP-API-Account` header stays a free selector). Add an
+entitlement check in the auth middleware if you later need per-user account limits.
+
+> **Local testing without an IdP:** set `AUTH_DEV_LOGIN=1` and `POST /auth/dev-login`
+> to mint a token without OIDC. This bypass is for testing only — never enable it in
+> production.
 
 ## Usage Examples
 

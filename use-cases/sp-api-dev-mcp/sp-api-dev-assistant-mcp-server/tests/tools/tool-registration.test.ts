@@ -3,21 +3,21 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 /**
- * Unit tests for tool registration in src/index.ts
+ * Unit tests for tool registration in src/mcp-server.ts
  * Validates: Requirements 1.1, 1.2, 1.3, 3.1, 3.2, 3.3, 3.4, 3.5
  *
- * Since SPAPIDevMCPServer is not exported, we read the source file as text
- * and verify tool registrations via string/regex analysis.
+ * Tool registration lives in createMcpServer (src/mcp-server.ts); we read the
+ * source file as text and verify tool registrations via string/regex analysis.
  */
 
-const indexSource = readFileSync(
-  join(__dirname, "..", "..", "src", "index.ts"),
+const serverSource = readFileSync(
+  join(__dirname, "..", "..", "src", "mcp-server.ts"),
   "utf-8",
 );
 
 // Extract all registerTool calls with their tool names
 function extractRegisteredToolNames(source: string): string[] {
-  const regex = /this\.server\.registerTool\(\s*['"`]([^'"`]+)['"`]/g;
+  const regex = /(?:this\.)?server\.registerTool\(\s*['"`]([^'"`]+)['"`]/g;
   const names: string[] = [];
   let match: RegExpExecArray | null;
   while ((match = regex.exec(source)) !== null) {
@@ -34,7 +34,7 @@ function extractToolDescription(source: string, toolName: string): string {
     "\\9504f1a1-71e0-4877-b215-0679c6c4feb4",
   );
   const regex = new RegExp(
-    `this\\.server\\.registerTool\\(\\s*['"\`]${escapedName}['"\`]\\s*,\\s*\\{\\s*description\\s*:\\s*`,
+    `(?:this\\.)?server\\.registerTool\\(\\s*['"\`]${escapedName}['"\`]\\s*,\\s*\\{\\s*description\\s*:\\s*`,
     "s",
   );
   const match = regex.exec(source);
@@ -59,7 +59,7 @@ function extractToolDescription(source: string, toolName: string): string {
   return "";
 }
 
-const registeredTools = extractRegisteredToolNames(indexSource);
+const registeredTools = extractRegisteredToolNames(serverSource);
 
 describe("Tool Registration - Requirements 1.1, 1.2, 1.3", () => {
   describe("Requirement 1.1: Single sp_api_generate_code_sample registration", () => {
@@ -118,7 +118,7 @@ describe("Tool Registration - Requirements 1.1, 1.2, 1.3", () => {
 
 describe("Tool Description Content - Requirements 3.1, 3.2, 3.3, 3.4, 3.5", () => {
   const description = extractToolDescription(
-    indexSource,
+    serverSource,
     "sp_api_generate_code_sample",
   );
 
